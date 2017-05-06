@@ -17,6 +17,7 @@ import           Network.Wai
 import           Network.Wai.Handler.Warp    as Warp
 import           Network.Wai.Middleware.Cors
 import           Servant
+import           SwaggerGen
 -- import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
 
 couponServer :: ConnectionPool -> Server CouponApi
@@ -51,9 +52,11 @@ billCouponServer _ = billCouponComputeH
                               billCouponCompute bill = do print bill
                                                           return $ Applied 100
 
+swaggerServer :: Server SwaggerApi
+swaggerServer = liftIO $ return $ swaggerDoc couponApi
 
 server :: ConnectionPool -> Server ServerApi
-server pool = couponServer pool :<|> billCouponServer pool
+server pool = couponServer pool :<|> billCouponServer pool :<|> swaggerServer
 
 
 app :: ConnectionPool -> Application
@@ -74,5 +77,4 @@ mkApp sqliteFile = do
   return $ app pool
 
 run :: String -> IO ()
-run dbConnStr =
-  Warp.run 3000 =<< mkPgApp dbConnStr
+run dbConnStr = Warp.run 3000 =<< mkPgApp dbConnStr
