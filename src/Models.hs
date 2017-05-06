@@ -13,26 +13,30 @@
 module Models (module Models,module Coupon) where
 
 import           Coupon
-import           Data.Aeson
 import           Data.Text
 import           Data.Time.Clock
 import           Database.Persist.TH
 import           GHC.Generics
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
-Customer
+CustomerCoupon
   email Text
+  code Text
+  usage Int
   UniqueEmail email
   Primary email
+  Foreign Coupon fkcoupon code
   deriving Eq Read Show Generic
--- Product
---   name Text
---   price Int
---   code Text
---   UniqueName name
---   Foreign Coupon fkcoupon code
---   Primary name
---   deriving Eq Read Show Generic
+
+ProductCoupon
+  product Text
+  code Text
+  usage Int
+  UniqueProduct product
+  Primary product
+  Foreign Coupon fkcoupon code
+  deriving Eq Read Show Generic
+
 Coupon json
   code Text
   value  CouponType

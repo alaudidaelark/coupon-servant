@@ -46,11 +46,9 @@ couponServer pool =
       return Nothing
 
 billCouponServer :: ConnectionPool -> Server BillCouponApi
-billCouponServer pool = billCouponComputeH
+billCouponServer _ = billCouponComputeH
                         where billCouponComputeH bill = liftIO $ billCouponCompute bill
-                                                        -- return $ Applied 100
-                              billCouponCompute :: BillCoupon -> IO CouponResult
-                              billCouponCompute bill = do putStrLn $ show bill
+                              billCouponCompute bill = do print bill
                                                           return $ Applied 100
 
 

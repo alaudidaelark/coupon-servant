@@ -14,29 +14,36 @@ module Coupon where
 
 import           Data.Aeson
 import           Data.Aeson.Types
+import           Data.Swagger
+import           Data.Text
 import           Database.Persist.TH
 import           GHC.Generics
 import           Prelude
 
-
 data Product = Product {
-  productName  :: String,
+  productName  :: Text,
   productPrice:: Int
-}  deriving (Eq, Read, Show, Generic, FromJSON, ToJSON)
+}  deriving (Eq, Read, Show, Generic, FromJSON, ToJSON, ToSchema)
 
 data BillCoupon = BillCoupon {
-  customer    :: String,
-  coupon      :: String,
+  customer    :: Text,
+  coupon      :: Text,
   productList :: [Product]
-} deriving (Eq, Read, Show, Generic, FromJSON, ToJSON)
+} deriving (Eq, Read, Show, Generic, FromJSON, ToJSON, ToSchema)
 
 data CouponResult = Applied Int | Rejected String | Partial String
-    deriving (Show, Read, Eq, Generic, FromJSON, ToJSON)
+    deriving (Show, Read, Eq, Generic, FromJSON, ToJSON, ToSchema)
 
-data CouponType = ProductFlat Int | CartFlat Int | CartPercent Int
-    deriving (Show, Read, Eq, Generic)
+data CouponForProduct = CouponForProduct {
+    product         ::Text,
+    productDiscount ::Int
+} deriving (Show, Read, Eq, Generic, FromJSON, ToJSON, ToSchema)
 
-couponOption =  defaultOptions { sumEncoding   = ObjectWithSingleField }
+data CouponType = ProductFlat CouponForProduct | CartFlat Int | CartPercent Int
+    deriving (Show, Read, Eq, Generic, ToSchema)
+
+couponOption :: Options
+couponOption = defaultOptions { sumEncoding   = ObjectWithSingleField }
 
 instance FromJSON CouponType where
     parseJSON = genericParseJSON couponOption
@@ -46,5 +53,11 @@ instance ToJSON CouponType where
 
 derivePersistField "CouponType"
 
-prodListEx = [Product {productName = "Water", productPrice = 15}]
-billCouponExample = BillCoupon { customer = "test@email.com", coupon = "FLAT100", productList = prodListEx}
+-- prodListEx :: [Product]
+-- prodListEx = [Product {productName = "Water", productPrice = 15}]
+
+-- billCouponExample :: BillCoupon
+-- billCouponExample = BillCoupon { customer = "test@email.com",
+--                                  coupon = "FLAT100",
+--                                  productList = prodListEx }
+
