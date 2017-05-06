@@ -31,7 +31,7 @@ data BillCoupon = BillCoupon {
   productList :: [Product]
 } deriving (Eq, Read, Show, Generic, FromJSON, ToJSON, ToSchema)
 
-data CouponResult = Applied Int | Rejected String | Partial String
+data CouponResult = Applied Int | Rejected String
     deriving (Show, Read, Eq, Generic, FromJSON, ToJSON, ToSchema)
 
 data CouponForProduct = CouponForProduct {
@@ -52,12 +52,3 @@ instance ToJSON CouponType where
     toJSON = genericToJSON couponOption
 
 derivePersistField "CouponType"
-
--- prodListEx :: [Product]
--- prodListEx = [Product {productName = "Water", productPrice = 15}]
-
--- billCouponExample :: BillCoupon
--- billCouponExample = BillCoupon { customer = "test@email.com",
---                                  coupon = "FLAT100",
---                                  productList = prodListEx }
-

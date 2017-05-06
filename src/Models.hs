@@ -43,6 +43,7 @@ Coupon json
   min_price Int
   customer_limit Int
   usage_limit Int
+  used Int
   valid_from UTCTime default=now()
   valid_till UTCTime default=now()
   UniqueCode code

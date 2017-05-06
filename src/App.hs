@@ -6,19 +6,21 @@
 module App where
 
 import           Api
+import           Control.Monad
 import           Control.Monad.IO.Class
-import           Control.Monad.Logger        (runStderrLoggingT)
+import           Control.Monad.Logger                 (runStderrLoggingT)
+import           Data.Maybe
 import           Data.String.Conversions
 import           Data.Text
 import           Database.Persist
 import           Database.Persist.Postgresql
 import           Database.Persist.Sqlite
 import           Network.Wai
-import           Network.Wai.Handler.Warp    as Warp
+import           Network.Wai.Handler.Warp             as Warp
 import           Network.Wai.Middleware.Cors
+import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import           Servant
 import           SwaggerGen
--- import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
 
 couponServer :: ConnectionPool -> Server CouponApi
 couponServer pool =
@@ -28,29 +30,26 @@ couponServer pool =
     couponGetH code    = liftIO $ couponGet code
     couponDelH code    = liftIO $ couponDel code
 
-    couponAdd :: Coupon -> IO (Maybe Coupon)
+    couponAdd :: Coupon -> IO NoContent
     couponAdd newCoupon = flip runSqlPersistMPool pool $ do
       exists <- selectFirst [CouponCode ==. couponCode newCoupon] []
-      case exists of
-        Nothing -> Just <$> insert newCoupon
-        Just _  -> return Nothing
-      return Nothing
+      when (isNothing exists) $ void $ insert newCoupon
+      return NoContent
 
     couponGet :: Text -> IO (Maybe Coupon)
     couponGet code = flip runSqlPersistMPool pool $ do
       mUser <- selectFirst [CouponCode ==. code] []
       return $ entityVal <$> mUser
 
-    couponDel :: Text -> IO (Maybe Coupon)
+    couponDel :: Text -> IO NoContent
     couponDel code = flip runSqlPersistMPool pool $ do
       deleteWhere [CouponCode ==. code]
-      return Nothing
+      return NoContent
 
 billCouponServer :: ConnectionPool -> Server BillCouponApi
-billCouponServer _ = billCouponComputeH
-                        where billCouponComputeH bill = liftIO $ billCouponCompute bill
-                              billCouponCompute bill = do print bill
-                                                          return $ Applied 100
+billCouponServer _ = liftIO.billCouponCompute
+                    where billCouponCompute bill = do print bill
+                                                      return $ Applied 100
 
 swaggerServer :: Server SwaggerApi
 swaggerServer = liftIO $ return $ swaggerDoc couponApi
@@ -60,21 +59,29 @@ server pool = couponServer pool :<|> billCouponServer pool :<|> swaggerServer
 
 
 app :: ConnectionPool -> Application
-app pool = cors (const $ Just policy) $ serve api $ server pool
-            where
-               policy = simpleCorsResourcePolicy { corsRequestHeaders = ["Content-Type"] }
+app pool = serve couponApi $ couponServer pool :<|> billCouponServer pool
 
-mkPgApp :: String -> IO Application
-mkPgApp sqliteFile = do
+appDebug :: ConnectionPool -> Application
+appDebug pool = logStdoutDev $ cors (const $ Just policy) $ serve api $ server pool
+            where policy = simpleCorsResourcePolicy { corsRequestHeaders = ["Content-Type"] }
+
+mkApp :: String -> IO Application
+mkApp sqliteFile = do
   pool <- runStderrLoggingT $ createPostgresqlPool (cs sqliteFile) 5
   runSqlPool (runMigration migrateAll) pool
   return $ app pool
 
-mkApp :: String -> IO Application
-mkApp sqliteFile = do
+mkDebugPgApp :: String -> IO Application
+mkDebugPgApp sqliteFile = do
+  pool <- runStderrLoggingT $ createPostgresqlPool (cs sqliteFile) 5
+  runSqlPool (runMigration migrateAll) pool
+  return $ appDebug pool
+
+mkSqliteApp :: String -> IO Application
+mkSqliteApp sqliteFile = do
   pool <- runStderrLoggingT $ createSqlitePool (cs sqliteFile) 5
   runSqlPool (runMigration migrateAll) pool
-  return $ app pool
+  return $ appDebug pool
 
 run :: String -> IO ()
-run dbConnStr = Warp.run 3000 =<< mkPgApp dbConnStr
+run dbConnStr = Warp.run 3000 =<< mkApp dbConnStr

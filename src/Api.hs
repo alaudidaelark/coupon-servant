@@ -10,12 +10,11 @@ import           Data.Swagger
 import           Data.Text
 import           Models
 import           Servant.API
-import           SwaggerGen
 
 type CouponApi =
-       "coupon" :> "add" :> ReqBody '[JSON] Coupon :> Post '[JSON] (Maybe Coupon)
+       "coupon" :> "add" :> ReqBody '[JSON] Coupon :> Post '[JSON] NoContent
   :<|> "coupon" :> "get" :> Capture "name" Text  :> Get  '[JSON] (Maybe Coupon)
-  :<|> "coupon" :> "del" :> Capture "name" Text  :> Get  '[JSON] (Maybe Coupon)
+  :<|> "coupon" :> "del" :> Capture "name" Text  :> Get  '[JSON] NoContent
 
 type BillCouponApi =
        "billcoupon" :> ReqBody '[JSON] BillCoupon :> Post '[JSON] CouponResult
