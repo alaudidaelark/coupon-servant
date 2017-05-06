@@ -9,6 +9,7 @@ import           Api
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.Logger                 (runStderrLoggingT)
+import           Control.Monad.Trans.Reader
 import           Data.Maybe
 import           Data.String.Conversions
 import           Data.Text
@@ -46,10 +47,29 @@ couponServer pool =
       deleteWhere [CouponCode ==. code]
       return NoContent
 
+-- computeBillCoupon :: Coupon -> BillCoupon -> CouponResult
+-- computeBillCoupon c b = Applied 1000
+
 billCouponServer :: ConnectionPool -> Server BillCouponApi
-billCouponServer _ = liftIO.billCouponCompute
-                    where billCouponCompute bill = do print bill
-                                                      return $ Applied 100
+billCouponServer pool = liftIO.compute
+                        where compute bill = runSqlPersistMPool (query bill) pool
+                              query bill = do mcpn <- selectFirst [CouponCode ==. coupon bill] []
+                                              case mcpn of
+                                                Just cpn -> withCoupon (entityVal cpn) bill
+                                                Nothing -> return (Rejected "Coupon Not Found")
+                              withCoupon cpn bill = case couponValue cpn of
+                                                         ProductFlat c -> productFlat c bill
+                                                         CartFlat c -> cartFlat c bill
+                                                         CartPercent c -> cartPerCent c bill
+
+productFlat ::  (Monad m) => CouponForProduct -> BillCoupon -> m CouponResult
+productFlat p bill = return (Rejected "Coupon ProductFlat Found")
+
+cartFlat ::  (Monad m) => Int -> BillCoupon -> m CouponResult
+cartFlat p bill = return (Rejected "Coupon CartFlat Found")
+
+cartPerCent ::  (Monad m) => Int -> BillCoupon -> m CouponResult
+cartPerCent p bill = return (Rejected "Coupon CartPercent Found")
 
 swaggerServer :: Server SwaggerApi
 swaggerServer = liftIO $ return $ swaggerDoc couponApi
