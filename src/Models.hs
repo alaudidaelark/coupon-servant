@@ -22,7 +22,7 @@ share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 CustomerCoupon
   email Text
   code Text
-  usage Int
+  cused Int
   UniqueEmail email
   Primary email
   Foreign Coupon fkcoupon code
@@ -31,7 +31,7 @@ CustomerCoupon
 ProductCoupon
   product Text
   code Text
-  usage Int
+  pused Int
   UniqueProduct product
   Primary product
   Foreign Coupon fkcoupon code
@@ -40,14 +40,24 @@ ProductCoupon
 Coupon json
   code Text
   value  CouponType
-  min_price Int
-  product_limit Int
-  customer_limit Int
-  usage_limit Int
   used Int
   valid_from UTCTime default=now()
   valid_till UTCTime default=now()
+  min_price Int
+  usage_limit Int
+  product_limit Int
+  customer_limit Int
   UniqueCode code
   Primary code
   deriving Eq Read Show Generic
 |]
+
+newProdCoupon :: CouponForProduct -> BillCoupon -> ProductCoupon
+newProdCoupon c p = ProductCoupon { productCouponProduct = couponProductName c,
+                                    productCouponCode = coupon p,
+                                    productCouponPused = 1}
+
+newCustCoupon :: BillCoupon -> CustomerCoupon
+newCustCoupon b = CustomerCoupon { customerCouponEmail = customer b,
+                                   customerCouponCode = coupon b,
+                                   customerCouponCused = 1}

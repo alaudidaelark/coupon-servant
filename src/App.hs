@@ -6,13 +6,11 @@
 module App where
 
 import           Api
-import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.Logger                 (runStderrLoggingT)
 import           Control.Monad.Trans.Reader
-import           Data.Maybe
 import           Data.String.Conversions
-import           Data.Text                            (Text)
+import           Data.Text                            (Text, intercalate)
 import           Data.Time.Clock
 import           Database.Persist
 import           Database.Persist.Postgresql
@@ -34,7 +32,6 @@ couponServer pool =
 
     couponAdd :: Coupon -> IO NoContent
     couponAdd newCoupon = flip runSqlPersistMPool pool $ do
-      -- exists <- selectFirst [CouponCode ==. couponCode newCoupon] []
       upsert newCoupon [CouponValue =. couponValue newCoupon,
                         CouponMin_price =. couponMin_price newCoupon,
                         CouponValid_from =. couponValid_from newCoupon,
@@ -53,68 +50,76 @@ couponServer pool =
       deleteWhere [CouponCode ==. code]
       return NoContent
 
--- computeBillCoupon :: Coupon -> BillCoupon -> CouponResult
--- computeBillCoupon c b = Applied 1000
-
 billCouponServer :: ConnectionPool -> Server BillCouponApi
-billCouponServer pool = liftIO.compute
-                        where compute bill = runSqlPersistMPool (query bill) pool
+billCouponServer pool = liftIO.process
+                        where process bill = runSqlPersistMPool (query bill) pool
                               query bill = do mcpn <- selectFirst [CouponCode ==. coupon bill] []
                                               case mcpn of
                                                 Just cpn -> computeBill (entityVal cpn) bill
                                                 Nothing -> return $ Rejected "Coupon Not Found"
 
 computeBill ::  ( MonadIO m) => Coupon -> BillCoupon -> ReaderT SqlBackend m CouponResult
-computeBill c b = do  pc <- mapM prodCoupon $ productList b
-                      cm <- selectFirst [CustomerCouponCode ==. couponCode c,
-                                          CustomerCouponEmail ==. customer b] []
-                      let mcm = customerLimit $ entityVal <$> cm
+computeBill c b = do  productLimit <- couponApplicable
+                      customerUsageLimit <- custCoupon
+                      let (couponWorthy,couponAmount) = couponWorth (couponValue c) b
                       ct <- liftIO getCurrentTime
-                      let valid = couponCount && minLimit && True `elem` pc && mcm && couponTime ct
-                      liftIO $ do print pc
-                                  print minLimit
-                                  print couponCount
-                                  print mcm
-                                  print $ couponTime ct
-                      if valid
-                        then return.Applied $ computeDiscountAmount (couponValue c) b
-                        else return.Rejected $ "Rejected Coupon Invalid"
-                      where prodCoupon k = do p <- selectFirst [ProductCouponCode ==. couponCode c,
+                      let timeLimit = couponTime ct
+                      let validityList = [productLimit,couponUsageLimit,priceLimit,
+                                          couponWorthy,customerUsageLimit,timeLimit]
+                      let rejectionStrings = ["Coupon not available for product anymore",
+                                              "Coupon not available anymore",
+                                              "Cart value not enough for coupon",
+                                              "Coupon not applicable for cart",
+                                              "Coupon usage limit exceeded",
+                                              "Coupon Expired/Not yet valid"]
+                      let rejLookup = zip validityList rejectionStrings
+                      let rsl = map snd $ filter (not.fst) rejLookup
+                      let rejectionString = intercalate "\n" rsl
+                      liftIO $ mapM_ print rejLookup
+                      if and validityList
+                        then do upsProdCoupon (couponValue c)
+                                upsert (newCustCoupon b) [CustomerCouponCused +=. 1]
+                                updateWhere [CouponCode ==. couponCode c] [CouponUsed +=. 1]
+                                return $ Applied couponAmount
+                        else return $ Rejected rejectionString
+                      where couponApplicable = case couponValue c of
+                                                    ProductFlat _ -> do pc <-mapM prodCoupon $ productList b
+                                                                        return $ and pc
+                                                    _ -> return True
+                            prodCoupon k = do p <- selectFirst [ProductCouponCode ==. couponCode c,
                                                                 ProductCouponProduct ==. productName k] []
-                                              return $ productLimit $ entityVal <$> p
-                            minLimit = couponMin_price c < billAmount b
-                            couponCount = couponUsed c < couponUsage_limit c
+                                              return $ prodLimit $ entityVal <$> p
+                            custCoupon = do cm <- selectFirst [CustomerCouponCode ==. couponCode c,
+                                                               CustomerCouponEmail ==. customer b] []
+                                            return $ customerLimit $ entityVal <$> cm
+                            upsProdCoupon (ProductFlat cf) = do upsert (newProdCoupon cf b) [ProductCouponPused +=. 1]
+                                                                return ()
+                            upsProdCoupon _                = return ()
+                            priceLimit = couponMin_price c < billAmount b
+                            couponUsageLimit = couponUsed c < couponUsage_limit c
                             couponTime ct = couponValid_from c < ct && couponValid_till c > ct
-                            productLimit (Just pc) = productCouponUsage pc > couponProduct_limit c
-                            productLimit _ = True
-                            customerLimit (Just cp) = customerCouponUsage cp > couponCustomer_limit c
+                            prodLimit (Just pc) = productCouponPused pc > couponProduct_limit c
+                            prodLimit _ = True
+                            customerLimit (Just cp) = customerCouponCused cp > couponCustomer_limit c
                             customerLimit _ = True
 
 billAmount :: BillCoupon -> Int
 billAmount b = sum (map productPrice (productList b))
 
-computeDiscountAmount :: CouponType -> BillCoupon -> Int
-computeDiscountAmount (ProductFlat c) b = couponProductDiscount c * productCount
-                                          where matchProducts p = couponProductName c == productName p
-                                                productCount = length $ filter matchProducts (productList b)
-computeDiscountAmount (CartFlat c) b    = billAmount b - c
-computeDiscountAmount (CartPercent c) b = (billAmount b * c) `div` 100
-
-productFlat ::  (Monad m) => CouponForProduct -> BillCoupon -> m CouponResult
-productFlat p bill = return (Rejected "Coupon ProductFlat Found")
-
-cartFlat ::  (Monad m) => Int -> BillCoupon -> m CouponResult
-cartFlat p bill = return (Rejected "Coupon CartFlat Found")
-
-cartPerCent ::  (Monad m) => Int -> BillCoupon -> m CouponResult
-cartPerCent p bill = return (Rejected "Coupon CartPercent Found")
+couponWorth :: CouponType -> BillCoupon -> (Bool,Int)
+couponWorth (ProductFlat c) b = if productCount == 0
+                                      then (False ,0)
+                                      else(True ,couponProductDiscount c * productCount)
+                                    where matchProducts p = couponProductName c == productName p
+                                          productCount = length $ filter matchProducts (productList b)
+couponWorth (CartFlat c) b    = (True ,billAmount b - c)
+couponWorth (CartPercent c) b = (True ,(billAmount b * c) `div` 100)
 
 swaggerServer :: Server SwaggerApi
 swaggerServer = liftIO $ return $ swaggerDoc couponApi
 
 server :: ConnectionPool -> Server ServerApi
 server pool = couponServer pool :<|> billCouponServer pool :<|> swaggerServer
-
 
 app :: ConnectionPool -> Application
 app pool = serve couponApi $ couponServer pool :<|> billCouponServer pool

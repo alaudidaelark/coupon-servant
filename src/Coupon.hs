@@ -31,7 +31,7 @@ data BillCoupon = BillCoupon {
   productList :: [Product]
 } deriving (Eq, Read, Show, Generic, FromJSON, ToJSON, ToSchema)
 
-data CouponResult = Applied Int | Rejected String
+data CouponResult = Applied Int | Rejected Text
     deriving (Show, Read, Eq, Generic, FromJSON, ToJSON, ToSchema)
 
 data CouponForProduct = CouponForProduct {
