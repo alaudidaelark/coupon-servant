@@ -13,6 +13,7 @@ import           Control.Monad.Trans.Reader
 import           Data.Maybe
 import           Data.String.Conversions
 import           Data.Text
+import           Data.Time.Clock
 import           Database.Persist
 import           Database.Persist.Postgresql
 import           Database.Persist.Sqlite
@@ -33,8 +34,11 @@ couponServer pool =
 
     couponAdd :: Coupon -> IO NoContent
     couponAdd newCoupon = flip runSqlPersistMPool pool $ do
-      exists <- selectFirst [CouponCode ==. couponCode newCoupon] []
-      when (isNothing exists) $ void $ insert newCoupon
+      -- exists <- selectFirst [CouponCode ==. couponCode newCoupon] []
+      upsert newCoupon [CouponValue =. couponValue newCoupon,
+                        CouponMin_price =. couponMin_price newCoupon]
+      -- TODO Add more upsert cols
+      -- when (isNothing exists) $ void $ insert newCoupon
       return NoContent
 
     couponGet :: Text -> IO (Maybe Coupon)
@@ -55,12 +59,35 @@ billCouponServer pool = liftIO.compute
                         where compute bill = runSqlPersistMPool (query bill) pool
                               query bill = do mcpn <- selectFirst [CouponCode ==. coupon bill] []
                                               case mcpn of
-                                                Just cpn -> withCoupon (entityVal cpn) bill
-                                                Nothing -> return (Rejected "Coupon Not Found")
-                              withCoupon cpn bill = case couponValue cpn of
-                                                         ProductFlat c -> productFlat c bill
-                                                         CartFlat c -> cartFlat c bill
-                                                         CartPercent c -> cartPerCent c bill
+                                                Just cpn -> computeBill (entityVal cpn) bill
+                                                Nothing -> return $ Rejected "Coupon Not Found"
+
+computeBill ::  ( MonadIO m) => Coupon -> BillCoupon -> ReaderT SqlBackend m CouponResult
+computeBill c b = do  pc <- mapM prodCoupon $ productList b
+                      cm <- selectFirst [CustomerCouponCode ==. couponCode c,
+                                          CustomerCouponEmail ==. customer b] []
+                      let mcm = customerLimit $ entityVal <$> cm
+                      ct <- liftIO getCurrentTime
+                      let valid = couponCount && True `elem` pc && mcm && couponTime ct
+                      liftIO $ do print pc
+                                  print couponCount
+                                  print mcm
+                                  print $ couponTime ct
+                      if valid
+                        then return.Applied $ computeBillAmount c b
+                        else return.Rejected $ "Rejected Coupon Invalid"
+                      where prodCoupon k = do p <- selectFirst [ProductCouponCode ==. couponCode c,
+                                                                ProductCouponProduct ==. productName k] []
+                                              return $ productLimit $ entityVal <$> p
+                            couponCount = couponUsed c < couponUsage_limit c
+                            couponTime ct = couponValid_from c < ct && couponValid_till c > ct
+                            productLimit (Just pc) = productCouponUsage pc > couponProduct_limit c
+                            productLimit _ = True
+                            customerLimit (Just cp) = customerCouponUsage cp > couponCustomer_limit c
+                            customerLimit _ = True
+
+computeBillAmount :: Coupon -> BillCoupon -> Int
+computeBillAmount _ _ = 100
 
 productFlat ::  (Monad m) => CouponForProduct -> BillCoupon -> m CouponResult
 productFlat p bill = return (Rejected "Coupon ProductFlat Found")
@@ -104,4 +131,4 @@ mkSqliteApp sqliteFile = do
   return $ appDebug pool
 
 run :: String -> IO ()
-run dbConnStr = Warp.run 3000 =<< mkApp dbConnStr
+run dbConnStr = Warp.run 3000 =<< mkDebugPgApp dbConnStr

@@ -41,6 +41,7 @@ Coupon json
   code Text
   value  CouponType
   min_price Int
+  product_limit Int
   customer_limit Int
   usage_limit Int
   used Int
