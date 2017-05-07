@@ -12,7 +12,7 @@ import           Control.Monad.Logger                 (runStderrLoggingT)
 import           Control.Monad.Trans.Reader
 import           Data.Maybe
 import           Data.String.Conversions
-import           Data.Text
+import           Data.Text                            (Text)
 import           Data.Time.Clock
 import           Database.Persist
 import           Database.Persist.Postgresql
@@ -36,7 +36,9 @@ couponServer pool =
     couponAdd newCoupon = flip runSqlPersistMPool pool $ do
       -- exists <- selectFirst [CouponCode ==. couponCode newCoupon] []
       upsert newCoupon [CouponValue =. couponValue newCoupon,
-                        CouponMin_price =. couponMin_price newCoupon]
+                        CouponMin_price =. couponMin_price newCoupon,
+                        CouponValid_from =. couponValid_from newCoupon,
+                        CouponValid_till =. couponValid_till newCoupon]
       -- TODO Add more upsert cols
       -- when (isNothing exists) $ void $ insert newCoupon
       return NoContent
@@ -68,17 +70,19 @@ computeBill c b = do  pc <- mapM prodCoupon $ productList b
                                           CustomerCouponEmail ==. customer b] []
                       let mcm = customerLimit $ entityVal <$> cm
                       ct <- liftIO getCurrentTime
-                      let valid = couponCount && True `elem` pc && mcm && couponTime ct
+                      let valid = couponCount && minLimit && True `elem` pc && mcm && couponTime ct
                       liftIO $ do print pc
+                                  print minLimit
                                   print couponCount
                                   print mcm
                                   print $ couponTime ct
                       if valid
-                        then return.Applied $ computeBillAmount c b
+                        then return.Applied $ computeDiscountAmount (couponValue c) b
                         else return.Rejected $ "Rejected Coupon Invalid"
                       where prodCoupon k = do p <- selectFirst [ProductCouponCode ==. couponCode c,
                                                                 ProductCouponProduct ==. productName k] []
                                               return $ productLimit $ entityVal <$> p
+                            minLimit = couponMin_price c < billAmount b
                             couponCount = couponUsed c < couponUsage_limit c
                             couponTime ct = couponValid_from c < ct && couponValid_till c > ct
                             productLimit (Just pc) = productCouponUsage pc > couponProduct_limit c
@@ -86,8 +90,15 @@ computeBill c b = do  pc <- mapM prodCoupon $ productList b
                             customerLimit (Just cp) = customerCouponUsage cp > couponCustomer_limit c
                             customerLimit _ = True
 
-computeBillAmount :: Coupon -> BillCoupon -> Int
-computeBillAmount _ _ = 100
+billAmount :: BillCoupon -> Int
+billAmount b = sum (map productPrice (productList b))
+
+computeDiscountAmount :: CouponType -> BillCoupon -> Int
+computeDiscountAmount (ProductFlat c) b = couponProductDiscount c * productCount
+                                          where matchProducts p = couponProductName c == productName p
+                                                productCount = length $ filter matchProducts (productList b)
+computeDiscountAmount (CartFlat c) b    = billAmount b - c
+computeDiscountAmount (CartPercent c) b = (billAmount b * c) `div` 100
 
 productFlat ::  (Monad m) => CouponForProduct -> BillCoupon -> m CouponResult
 productFlat p bill = return (Rejected "Coupon ProductFlat Found")

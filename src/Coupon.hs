@@ -35,8 +35,8 @@ data CouponResult = Applied Int | Rejected String
     deriving (Show, Read, Eq, Generic, FromJSON, ToJSON, ToSchema)
 
 data CouponForProduct = CouponForProduct {
-    product         ::Text,
-    productDiscount ::Int
+    couponProductName     ::Text,
+    couponProductDiscount ::Int
 } deriving (Show, Read, Eq, Generic, FromJSON, ToJSON, ToSchema)
 
 data CouponType = ProductFlat CouponForProduct | CartFlat Int | CartPercent Int
