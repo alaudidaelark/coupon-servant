@@ -95,6 +95,7 @@ computeBill c b = do  productLimit <- couponApplicable
                                             return $ customerLimit $ entityVal <$> cm
                             upsProdCoupon (ProductFlat cf) = do upsertBy (newUprod cf) (newProdCoupon cf b) [ProductCouponPused +=. 1]
                                                                 return ()
+                            --TODO - how to update product table for cart coupons
                             upsProdCoupon _                = return ()
                             priceLimit = couponMin_price c < billAmount b
                             couponUsageLimit = couponUsed c < couponUsage_limit c
