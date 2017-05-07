@@ -55,9 +55,13 @@ Coupon json
 newProdCoupon :: CouponForProduct -> BillCoupon -> ProductCoupon
 newProdCoupon c p = ProductCoupon { productCouponProduct = couponProductName c,
                                     productCouponCode = coupon p,
-                                    productCouponPused = 1}
+                                    productCouponPused = 0}
 
 newCustCoupon :: BillCoupon -> CustomerCoupon
 newCustCoupon b = CustomerCoupon { customerCouponEmail = customer b,
                                    customerCouponCode = coupon b,
-                                   customerCouponCused = 1}
+                                   customerCouponCused = 0}
+
+newUCust b = UniqueEmail (customer b)
+
+newUprod c = UniqueProduct (couponProductName c)

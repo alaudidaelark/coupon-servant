@@ -37,7 +37,6 @@ couponServer pool =
                         CouponValid_from =. couponValid_from newCoupon,
                         CouponValid_till =. couponValid_till newCoupon]
       -- TODO Add more upsert cols
-      -- when (isNothing exists) $ void $ insert newCoupon
       return NoContent
 
     couponGet :: Text -> IO (Maybe Coupon)
@@ -47,6 +46,8 @@ couponServer pool =
 
     couponDel :: Text -> IO NoContent
     couponDel code = flip runSqlPersistMPool pool $ do
+      deleteWhere [CustomerCouponCode ==. code]
+      deleteWhere [ProductCouponCode ==. code]
       deleteWhere [CouponCode ==. code]
       return NoContent
 
@@ -74,11 +75,11 @@ computeBill c b = do  productLimit <- couponApplicable
                                               "Coupon Expired/Not yet valid"]
                       let rejLookup = zip validityList rejectionStrings
                       let rsl = map snd $ filter (not.fst) rejLookup
-                      let rejectionString = intercalate "\n" rsl
+                      let rejectionString = intercalate "     " rsl
                       liftIO $ mapM_ print rejLookup
                       if and validityList
                         then do upsProdCoupon (couponValue c)
-                                upsert (newCustCoupon b) [CustomerCouponCused +=. 1]
+                                upsertBy (newUCust b) (newCustCoupon b) [CustomerCouponCused +=. 1]
                                 updateWhere [CouponCode ==. couponCode c] [CouponUsed +=. 1]
                                 return $ Applied couponAmount
                         else return $ Rejected rejectionString
@@ -92,15 +93,15 @@ computeBill c b = do  productLimit <- couponApplicable
                             custCoupon = do cm <- selectFirst [CustomerCouponCode ==. couponCode c,
                                                                CustomerCouponEmail ==. customer b] []
                                             return $ customerLimit $ entityVal <$> cm
-                            upsProdCoupon (ProductFlat cf) = do upsert (newProdCoupon cf b) [ProductCouponPused +=. 1]
+                            upsProdCoupon (ProductFlat cf) = do upsertBy (newUprod cf) (newProdCoupon cf b) [ProductCouponPused +=. 1]
                                                                 return ()
                             upsProdCoupon _                = return ()
                             priceLimit = couponMin_price c < billAmount b
                             couponUsageLimit = couponUsed c < couponUsage_limit c
                             couponTime ct = couponValid_from c < ct && couponValid_till c > ct
-                            prodLimit (Just pc) = productCouponPused pc > couponProduct_limit c
+                            prodLimit (Just pc) = productCouponPused pc < couponProduct_limit c
                             prodLimit _ = True
-                            customerLimit (Just cp) = customerCouponCused cp > couponCustomer_limit c
+                            customerLimit (Just cp) = customerCouponCused cp < couponCustomer_limit c
                             customerLimit _ = True
 
 billAmount :: BillCoupon -> Int
